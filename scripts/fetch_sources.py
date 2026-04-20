@@ -63,6 +63,35 @@ def fetch_easylist() -> Iterable[str]:
             yield m.group(1)
 
 
+def fetch_peter_lowe() -> Iterable[str]:
+    """Peter Lowe's ad/tracking list — hand-curated classic (~3500 domains),
+    high signal-to-noise, still actively maintained. Hosts file format."""
+    text = fetch(
+        "https://pgl.yoyo.org/adservers/serverlist.php"
+        "?hostformat=hosts&mimetype=plaintext"
+    )
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in ("0.0.0.0", "127.0.0.1"):
+            d = clean(parts[1])
+            if VALID_DOMAIN.match(d) and d not in {"localhost", "localhost.localdomain"}:
+                yield d
+
+
+def fetch_adguard_dns() -> Iterable[str]:
+    """AdGuard DNS Filter — core tracker/analytics list used by AdGuard DNS
+    service (~35k domains). ABP syntax with `||domain^` rules — same parser
+    as EasyList."""
+    text = fetch(
+        "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt"
+    )
+    pattern = re.compile(r"^\|\|([a-z0-9.\-]+)\^")
+    for line in text.splitlines():
+        m = pattern.match(line.strip().lower())
+        if m and VALID_DOMAIN.match(m.group(1)):
+            yield m.group(1)
+
+
 def fetch_urlhaus() -> Iterable[str]:
     """abuse.ch URLhaus — active malware C2/payload hosts.
     Hosts file uses either 0.0.0.0 or 127.0.0.1 as sink address."""
@@ -117,7 +146,7 @@ def fetch_nocoin() -> Iterable[str]:
 
 
 CATEGORIES: dict[str, list[Callable[[], Iterable[str]]]] = {
-    "ads": [fetch_oisd_big, fetch_easylist],
+    "ads": [fetch_oisd_big, fetch_easylist, fetch_peter_lowe, fetch_adguard_dns],
     "malware": [fetch_urlhaus, fetch_threatfox],
     "phishing": [fetch_phishing_army],
     "cryptominers": [fetch_nocoin],
