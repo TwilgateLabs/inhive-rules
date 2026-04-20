@@ -1,0 +1,55 @@
+name: Build rule-sets
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'     # every 6 hours
+  workflow_dispatch:          # manual trigger
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-rulesets
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install sing-box CLI
+        run: |
+          VERSION="1.13.8"
+          curl -fsSLo /tmp/singbox.tar.gz \
+            "https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/singbox.tar.gz -C /tmp
+          sudo mv /tmp/sing-box-*/sing-box /usr/local/bin/
+          sing-box version
+
+      - name: Fetch sources
+        run: python3 scripts/fetch_sources.py
+
+      - name: Compile .srs
+        run: bash scripts/compile.sh
+
+      - name: Commit rule-set artifacts
+        run: |
+          git config user.email "bot@twilgate.ru"
+          git config user.name  "inhive-rules-bot"
+          git add rule-set/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "auto: rebuild $(date -u +%Y-%m-%d\ %H:%M)"
+            git push
+          fi
