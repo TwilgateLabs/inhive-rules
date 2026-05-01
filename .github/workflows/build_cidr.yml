@@ -49,5 +49,6 @@ jobs:
             echo "No changes — all CIDR sets up to date"
           else
             git commit -m "chore: rebuild CIDR bypass rule-sets $(date -u +%Y-%m-%d)"
+            git pull --rebase origin main
             git push
           fi
