@@ -1,0 +1,53 @@
+name: Build CIDR bypass rule-sets
+
+on:
+  schedule:
+    # Every Monday 03:00 UTC — ASN assignments change rarely
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install sing-box
+        run: |
+          SING_BOX_VERSION="1.13.8"
+          curl -fsSL \
+            "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz" \
+            | tar xz --strip-components=1 -C /usr/local/bin sing-box-${SING_BOX_VERSION}-linux-amd64/sing-box
+          sing-box version
+
+      - name: Fetch CIDR data
+        run: python3 scripts/fetch_cidr.py --output-dir rule-set/bypass
+
+      - name: Compile .srs files
+        run: bash scripts/compile_cidr.sh
+
+      - name: Verify output
+        run: |
+          echo "=== Generated files ==="
+          ls -lh rule-set/bypass/*.srs
+          echo "Total SRS files: $(ls rule-set/bypass/*.srs | wc -l)"
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add rule-set/bypass/
+          if git diff --cached --quiet; then
+            echo "No changes — all CIDR sets up to date"
+          else
+            git commit -m "chore: rebuild CIDR bypass rule-sets $(date -u +%Y-%m-%d)"
+            git push
+          fi
