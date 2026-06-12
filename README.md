@@ -1,7 +1,7 @@
 # inhive-rules
 
 Domain blocklists compiled into `sing-box` `.srs` format for the
-[InHive](https://github.com/twilgate/inhive-app) VPN client.
+[InHive](https://app.inhive.ru) VPN client.
 
 [![Build rule-sets](https://github.com/TwilgateLabs/inhive-rules/actions/workflows/build.yml/badge.svg)](https://github.com/TwilgateLabs/inhive-rules/actions/workflows/build.yml)
 
