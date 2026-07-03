@@ -53,43 +53,31 @@ def fetch_oisd_big() -> Iterable[str]:
             yield d
 
 
-def fetch_easylist() -> Iterable[str]:
-    """EasyList ABP format — extract bare domain-block rules `||domain^`."""
-    text = fetch("https://easylist.to/easylist/easylist.txt")
-    pattern = re.compile(r"^\|\|([a-z0-9.\-]+)\^")
+# ABP domain-block matcher — STRICT fullmatch: only bare `||domain^` rules.
+# A prefix match (re.match without `$`) silently accepts `||domain^$options`
+# and drops the options — which turns a site-scoped rule like
+# `||cloudfront.net^$domain=piratesite.io` into a GLOBAL block of all of
+# CloudFront. That shipped and broke video players app-wide (jwplayer.com,
+# b-cdn.net, cdn77.org were all globally blocked). Anything with `$options`,
+# a path, or `@@` exception syntax is rejected wholesale.
+_ABP_BARE_DOMAIN = re.compile(r"^\|\|([a-z0-9.\-]+)\^$")
+
+
+def _parse_abp_bare(text: str) -> Iterable[str]:
     for line in text.splitlines():
-        m = pattern.match(line.strip().lower())
+        m = _ABP_BARE_DOMAIN.match(line.strip().lower())
         if m and VALID_DOMAIN.match(m.group(1)):
             yield m.group(1)
-
-
-def fetch_peter_lowe() -> Iterable[str]:
-    """Peter Lowe's ad/tracking list — hand-curated classic (~3500 domains),
-    high signal-to-noise, still actively maintained. Hosts file format."""
-    text = fetch(
-        "https://pgl.yoyo.org/adservers/serverlist.php"
-        "?hostformat=hosts&mimetype=plaintext"
-    )
-    for line in text.splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and parts[0] in ("0.0.0.0", "127.0.0.1"):
-            d = clean(parts[1])
-            if VALID_DOMAIN.match(d) and d not in {"localhost", "localhost.localdomain"}:
-                yield d
 
 
 def fetch_adguard_dns() -> Iterable[str]:
-    """AdGuard DNS Filter — core tracker/analytics list used by AdGuard DNS
-    service (~35k domains). ABP syntax with `||domain^` rules — same parser
-    as EasyList."""
+    """AdGuard DNS Filter — the DNS-native tracker/analytics list that backs
+    the AdGuard DNS service (~150k rules, almost all bare `||domain^`). This is
+    designed for DNS-level blocking, unlike the browser-oriented EasyList."""
     text = fetch(
         "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt"
     )
-    pattern = re.compile(r"^\|\|([a-z0-9.\-]+)\^")
-    for line in text.splitlines():
-        m = pattern.match(line.strip().lower())
-        if m and VALID_DOMAIN.match(m.group(1)):
-            yield m.group(1)
+    yield from _parse_abp_bare(text)
 
 
 def fetch_urlhaus() -> Iterable[str]:
@@ -145,12 +133,40 @@ def fetch_nocoin() -> Iterable[str]:
                 yield d
 
 
+# ads = two DNS-native, false-positive-curated sources only.
+# EasyList and Peter Lowe were REMOVED 2026-07-04: EasyList is a browser
+# filter (its site-scoped `$domain=` rules became global CDN blocks through our
+# parser), and Peter Lowe blocks load-bearing hosts OISD deliberately keeps
+# (googletagmanager.com → broken forms/checkouts). OISD Big already folds in a
+# curated EasyList subset, so the removed sources added only false-positive
+# noise. See NEVER_BLOCK canary below.
 CATEGORIES: dict[str, list[Callable[[], Iterable[str]]]] = {
-    "ads": [fetch_oisd_big, fetch_easylist, fetch_peter_lowe, fetch_adguard_dns],
+    "ads": [fetch_oisd_big, fetch_adguard_dns],
     "malware": [fetch_urlhaus, fetch_threatfox],
     "phishing": [fetch_phishing_army],
     "cryptominers": [fetch_nocoin],
 }
+
+# Domain apexes that must NEVER appear as an exact entry in any blocklist —
+# shared CDNs, players and infra whose whole-domain removal breaks large swaths
+# of the web. .srs compiles each entry as domain_suffix, so listing the apex
+# here (exact match) catches the "block everything under this CDN" case; a
+# deep subdomain block like tracker.cloudfront.net stays allowed (it doesn't
+# take down the CDN). If any upstream list starts shipping one of these apexes
+# (drift), the build hard-fails instead of silently poisoning the released .srs.
+NEVER_BLOCK = {
+    "cloudfront.net", "b-cdn.net", "cdn77.org", "akamaized.net", "akamai.net",
+    "fastly.net", "jsdelivr.net", "cloudflare.com", "googleusercontent.com",
+    "googlevideo.com", "ytimg.com", "googleapis.com", "gstatic.com",
+    "jwplayer.com", "jwpcdn.com", "imasdk.googleapis.com", "vimeocdn.com",
+    "googletagmanager.com", "cloudflareinsights.com",
+}
+
+
+def _canary_violations(domains: set[str]) -> list[str]:
+    """NEVER_BLOCK apexes present as an EXACT entry (= domain_suffix over the
+    whole domain). Safe deep-subdomain blocks are intentionally not flagged."""
+    return sorted(NEVER_BLOCK & domains)
 
 
 def main() -> int:
@@ -172,6 +188,18 @@ def main() -> int:
             except Exception as exc:
                 total_warnings += 1
                 print(f"  [{category}] {name}: WARN {exc!r}", file=sys.stderr)
+
+        violations = _canary_violations(seen)
+        if violations:
+            # Hard-fail: a load-bearing CDN/player apex ended up in a blocklist.
+            # Better to ship yesterday's good .srs than a set that breaks video
+            # players. (See fetch_sources.py NEVER_BLOCK.)
+            print(
+                f"ERROR: [{category}] NEVER_BLOCK canary tripped — refusing to "
+                f"ship. Offending apexes: {', '.join(violations)}",
+                file=sys.stderr,
+            )
+            return 2
 
         path = out_dir / f"{category}.txt"
         path.write_text("\n".join(sorted(seen)) + "\n", encoding="utf-8")

@@ -9,7 +9,7 @@ Domain blocklists compiled into `sing-box` `.srs` format for the
 
 | File | Description | Upstream sources |
 | --- | --- | --- |
-| `rule-set/geosite-ads.srs` | Ads + trackers | OISD Big, EasyList |
+| `rule-set/geosite-ads.srs` | Ads + trackers | OISD Big, AdGuard DNS Filter |
 | `rule-set/geosite-malware.srs` | Malware C2 / payload hosts | abuse.ch URLhaus, ThreatFox |
 | `rule-set/geosite-phishing.srs` | Phishing landing pages | phishing.army (PhishTank + OpenPhish) |
 | `rule-set/geosite-cryptominers.srs` | In-browser / drive-by miners | hoshsadiq/adblock-nocoin-list |
@@ -45,7 +45,7 @@ Each upstream project is used under its own license. We do not modify
 upstream data — only re-encode it into the sing-box binary rule-set format.
 
 - [OISD](https://oisd.nl/) — © Erwin Bierens
-- [EasyList](https://easylist.to/) — CC BY-SA 3.0
+- [AdGuard DNS Filter](https://github.com/AdguardTeam/HostlistsRegistry) — GPL-3.0
 - [abuse.ch URLhaus & ThreatFox](https://abuse.ch/) — CC0
 - [phishing.army](https://phishing.army/) — CC BY 4.0
 - [adblock-nocoin-list](https://github.com/hoshsadiq/adblock-nocoin-list) — MIT
